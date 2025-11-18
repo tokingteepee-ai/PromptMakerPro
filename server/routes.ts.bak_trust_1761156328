@@ -1,0 +1,433 @@
+import { type Express } from "express";
+import { createServer, type Server } from "http";
+import { generatePrompt } from "./services/promptGenerator";
+import { storage } from "./storage";
+import { assertModelAvailable } from "./guards/modelGate.js";
+import { getModelRegistry } from "./services/modelRegistry.js";
+// Import publishing modules
+import { 
+  ensureTerms, 
+  generateTitle, 
+  uniqueSlug, 
+  buildPayload,
+  logPreflight,
+  PublishingStateMachine,
+  PublishingState,
+  type PostPayload
+} from "./publishing/index.js";
+// Import releases route
+import releasesRouter from "./routes/releases.js";
+
+// Top-level flags  
+const USE_MOCKS = process.env.USE_MOCKS === "true";
+const GENERATE_TIMEOUT_MS = Number(process.env.GENERATE_TIMEOUT_MS ?? 30000);
+
+function computeValidation(text: string): { clarity: number; structureOk: boolean; lengthChars: number } {
+  const t = text || "";
+  const len = t.length;
+  const sentences = t.split(/[.!?]\s+/).filter(Boolean);
+  const words = t.trim().split(/\s+/).filter(Boolean);
+  const avgSent = sentences.length ? (words.length / sentences.length) : words.length;
+  const hasHeadings = /^(#{1,6}\s|\s*[-*]\s|\d+\.\s)/m.test(t);
+  const hasSections = /(##\s*Role|##\s*Context|##\s*Instructions|##\s*Output|###\s*Steps|###\s*Path)/i.test(t);
+  let clarity = 40;
+  if (len >= 200 && len <= 2000) clarity += 15;
+  if (avgSent >= 8 && avgSent <= 24) clarity += 25;
+  if (hasHeadings) clarity += 10;
+  if (hasSections) clarity += 10;
+  if (clarity > 100) clarity = 100;
+  if (clarity < 0) clarity = 0;
+  return { clarity, structureOk: (hasHeadings || hasSections), lengthChars: len };
+}
+
+
+function withTimeout<T>(p: Promise<T>, ms = GENERATE_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("TIMEOUT")), ms);
+    p.then(v => { clearTimeout(t); resolve(v); }).catch(e => { clearTimeout(t); reject(e); });
+  });
+}
+
+// Helper function to calculate trust score
+function calculateTrustScore(trustSettings: any): number {
+  let score = 50; // Base score
+  if (trustSettings?.safetyMode) score += 10;
+  if (trustSettings?.ethicalGuardrails) score += 10;
+  if (trustSettings?.consentSafeMode) score += 10;
+  if (trustSettings?.clarityLevel >= 3) score += 10;
+  if (trustSettings?.rubric === "strict") score += 10;
+  return Math.min(score, 100);
+
+  // Heuristic validation based on generated text
+  function computeValidation(text: string): { clarity: number; structureOk: boolean; lengthChars: number } {
+    const t = text || "";
+    const len = t.length;
+    const sentences = t.split(/[.!?]\s+/).filter(Boolean);
+    const words = t.trim().split(/\s+/).filter(Boolean);
+    const avgSent = sentences.length ? (words.length / sentences.length) : words.length;
+    const hasHeadings = /^(#{1,6}\s|\s*[-*]\s|\d+\.\s)/m.test(t);
+    const hasSections = /(##\s*Role|##\s*Context|##\s*Instructions|##\s*Output|###\s*Steps|###\s*Path)/i.test(t);
+    const structureOk = hasHeadings || hasSections;
+    let clarity = 40;
+    if (len >= 200 && len <= 2000) clarity += 15;
+    if (avgSent >= 8 && avgSent <= 24) clarity += 25;
+    if (hasHeadings) clarity += 10;
+    if (hasSections) clarity += 10;
+    if (clarity > 100) clarity = 100;
+    if (clarity < 0) clarity = 0;
+    return { clarity, structureOk, lengthChars: len };
+  }
+
+}
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Generate endpoint
+  app.post("/api/generate", async (req, res) => {
+    try {
+      const { mode, formData, trustSettings } = req.body ?? {};
+      
+      console.log(`[API /api/generate] USE_MOCKS=${USE_MOCKS}, mode=${mode}`);
+      
+      if (USE_MOCKS) {
+        console.log('[API /api/generate] Using routes.ts mock path (USE_MOCKS=true)');
+        // Zero-cost local generation
+        const promptText = `[MOCK ${mode?.toUpperCase() ?? "TEMPLATE"}]\n` +
+          `Title: ${formData?.title ?? "Untitled"}\n` +
+          `Goal: ${formData?.goal ?? "N/A"}\n` +
+          `Task: ${formData?.task ?? "N/A"}\n` +
+          `Context: ${formData?.context ?? "N/A"}\n` +
+          `Constraints: ${JSON.stringify(trustSettings ?? {})}`;
+        
+        const trustScore = computeValidation(promptText).clarity;
+        const id = await storage.createPrompt({
+          mode: mode || "template",
+          title: formData?.title || `${mode} prompt`,
+          promptText,
+          formData: formData || {},
+          trustSettings: trustSettings || {},
+          trustScore
+        });
+        
+        return res.status(200).json({ 
+          ok: true, 
+          promptText,
+          trustScore,
+          trustBadgeEligible: trustScore >= 80,
+          promptId: id.id,
+        });
+      }
+
+      console.log('[API /api/generate] Taking real generation path, calling promptGenerator.ts');
+      // Real generation path (decoupled from model availability)
+      const generationPromise = generatePrompt(mode, formData, trustSettings);
+      const result = await withTimeout(generationPromise);
+      
+      if (!result?.promptText?.trim()) throw new Error("EMPTY_PROMPT");
+      
+      const trustScore = computeValidation(result.promptText).clarity;
+      const id = await storage.createPrompt({
+        mode,
+        title: formData?.title || `${mode} prompt`,
+        promptText: result.promptText,
+        formData,
+        trustSettings,
+        trustScore
+      });
+      
+      return res.status(200).json({ 
+        ok: true, 
+        promptText: result.promptText,
+        trustScore,
+        trustBadgeEligible: trustScore >= 80,
+        promptId: id.id,
+        resolvedModel: result.resolvedModel,
+        usedMock: result.usedMock,
+      });
+    } catch (e: any) {
+      const msg = e?.message === "TIMEOUT" ? "Generation timed out." : (e?.message || "Generate failed");
+      return res.status(400).json({ ok: false, error: msg });
+    }
+  });
+
+  // Test endpoint - Run test with model availability check
+  app.post("/api/test", async (req, res) => {
+    try {
+      const { modelId, prompt, mode } = req.body;
+      const registry = await getModelRegistry();
+      
+      // Check model availability
+      assertModelAvailable(modelId, registry);
+      
+      // Run test logic here
+      res.status(200).json({ 
+        ok: true,
+        message: "Test completed successfully",
+        mode,
+        promptLength: prompt?.length || 0
+      });
+    } catch (e: any) {
+      res.status(e.status ?? 500).json({ 
+        ok: false, 
+        code: e.code, 
+        message: e.message 
+      });
+    }
+  });
+
+
+  // Model Registry endpoint
+  app.get("/api/models", async (_req, res) => {
+    try {
+      const registry = await getModelRegistry();
+      res.json({
+        ok: true,
+        models: registry
+      });
+    } catch (error: any) {
+      console.error("Error fetching model registry:", error);
+      res.status(500).json({
+        ok: false,
+        error: "INTERNAL_ERROR",
+        message: "Failed to fetch model registry"
+      });
+    }
+  });
+
+  // Publishing preflight endpoint
+  app.post("/api/preflight", async (req, res) => {
+    try {
+      const { title, content, categories = [], tags = [], mode, metadata = {} } = req.body;
+      
+      // Initialize state machine
+      const stateMachine = new PublishingStateMachine();
+      stateMachine.transition(PublishingState.PREFLIGHT);
+      
+      // Step 1: Ensure terms exist
+      const termsResult = await ensureTerms({ categories, tags });
+      
+      // Step 2: Generate title if not provided
+      const finalTitle = title || generateTitle({
+        mode,
+        goal: metadata.goal,
+        category: categories[0],
+        agentName: metadata.agentName,
+        platform: metadata.platform,
+        mediaStyle: metadata.mediaStyle
+      });
+      
+      // Step 3: Generate unique slug
+      const baseSlug = finalTitle.toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .trim();
+      
+      // Mock slug checker for now
+      const slugChecker = async (slug: string) => {
+        // In production, would check database for existing slugs
+        return false; // For now, assume no duplicates
+      };
+      
+      const finalSlug = await uniqueSlug(baseSlug, slugChecker);
+      
+      // Step 4: Validate payload requirements
+      const validationErrors: string[] = [];
+      const validationWarnings: string[] = [];
+      
+      if (categories.length === 0) {
+        validationErrors.push("At least one category is required");
+      }
+      
+      if (tags.length < 3) {
+        validationErrors.push("At least 3 tags are required");
+      }
+      
+      if (!content || content.length < 10) {
+        validationWarnings.push("Content seems too short");
+      }
+      
+      const isValid = validationErrors.length === 0;
+      
+      // Build payload only if we have the minimum requirements
+      let payload: PostPayload | null = null;
+      if (content && categories.length > 0 && tags.length >= 3) {
+        payload = buildPayload({
+          title: finalTitle,
+          slug: finalSlug,
+          content: content || '',
+          categories,
+          tags,
+          meta: metadata
+        });
+      }
+      
+      // Log preflight completion
+      await logPreflight('preflight_complete', {
+        title: finalTitle,
+        slug: finalSlug,
+        termsCreated: termsResult.created.length,
+        termsExisting: termsResult.existing.length,
+        valid: isValid
+      });
+      
+      // Transition state based on validation
+      if (isValid) {
+        stateMachine.transition(PublishingState.READY_TO_PUBLISH);
+      }
+      
+      res.json({
+        success: true,
+        title: finalTitle,
+        slug: finalSlug,
+        termsResult,
+        payload,
+        state: stateMachine.getState(),
+        validation: {
+          isValid,
+          errors: validationErrors,
+          warnings: validationWarnings
+        }
+      });
+    } catch (error: any) {
+      console.error("Preflight error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Preflight failed",
+        details: error.message
+      });
+    }
+  });
+
+  // Create draft endpoint
+  app.post("/api/draft", async (req, res) => {
+    try {
+      const { payload } = req.body as { payload: PostPayload };
+      
+      if (!payload) {
+        return res.status(400).json({
+          success: false,
+          error: "Payload is required"
+        });
+      }
+      
+      // Store draft in memory
+      const id = await storage.createPrompt({
+        mode: 'template',
+        title: payload.title,
+        promptText: payload.content,
+        formData: payload.meta || {},
+        trustSettings: {},
+        trustScore: 0
+      });
+      
+      await logPreflight('draft_created', {
+        id,
+        title: payload.title,
+        slug: payload.slug
+      });
+      
+      res.json({
+        success: true,
+        draftId: id,
+        message: "Draft created successfully"
+      });
+    } catch (error: any) {
+      console.error("Draft creation error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to create draft",
+        details: error.message
+      });
+    }
+  });
+
+  // Publish endpoint
+  app.post("/api/publish", async (req, res) => {
+    try {
+      const { payload, validation } = req.body;
+      
+      if (!payload) {
+        return res.status(400).json({
+          success: false,
+          error: "Payload is required"
+        });
+      }
+      
+      // Check validation
+      if (!validation?.isValid) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation failed",
+          details: validation?.errors || ["Cannot publish with validation errors"]
+        });
+      }
+      
+      // Store published prompt
+      const id = await storage.createPrompt({
+        mode: payload.meta?.mode || 'template',
+        title: payload.title,
+        promptText: payload.content,
+        formData: payload.meta || {},
+        trustSettings: {},
+        trustScore: payload.meta?.trustScore || 0
+      });
+      
+      await logPreflight('prompt_published', {
+        id,
+        title: payload.title,
+        slug: payload.slug
+      });
+      
+      res.json({
+        success: true,
+        publishedId: id,
+        message: "Prompt published successfully",
+        url: `/prompts/${id}`
+      });
+    } catch (error: any) {
+      console.error("Publishing error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to publish",
+        details: error.message
+      });
+    }
+  });
+
+  // Get all prompts
+  app.get("/api/prompts", async (_req, res) => {
+    try {
+      const prompts = await storage.getAllPrompts();
+      res.json({ prompts });
+    } catch (error: any) {
+      console.error("Error fetching prompts:", error);
+      res.status(500).json({
+        error: "Failed to fetch prompts",
+        details: error.message
+      });
+    }
+  });
+
+  // Get single prompt
+  app.get("/api/prompts/:id", async (req, res) => {
+    try {
+      const prompt = await storage.getPrompt(req.params.id);
+      if (!prompt) {
+        return res.status(404).json({ error: "Prompt not found" });
+      }
+      res.json(prompt);
+    } catch (error: any) {
+      console.error("Error fetching prompt:", error);
+      res.status(500).json({
+        error: "Failed to fetch prompt",
+        details: error.message
+      });
+    }
+  });
+
+  // Register releases download route
+  app.use(releasesRouter);
+
+  const httpServer = createServer(app);
+  return httpServer;
+}

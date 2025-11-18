@@ -1,0 +1,256 @@
+import { Router } from "express";
+import type { Request, Response } from "express";
+import { storage } from "./storage.js";
+import { generatePrompt, type GenerateRequest } from "./services/promptGenerator.js";
+// Import publishing modules
+import { 
+  ensureTerms, 
+  generateTitle, 
+  uniqueSlug, 
+  buildPayload,
+  logPreflight,
+  PublishingStateMachine,
+  PublishingState,
+  type PostPayload
+} from "./publishing/index.js";
+
+const router = Router();
+
+/**
+ * Generate a prompt based on the provided data.
+ */
+router.post("/api/generate", async (req: Request, res: Response) => {
+  try {
+    const requestData = req.body as GenerateRequest;
+    const response = await generatePrompt(requestData);
+    
+    // Store the prompt in memory storage
+    const id = await storage.createPrompt({
+      mode: requestData.mode,
+      title: requestData.title || `${requestData.mode} prompt`,
+      promptText: response.prompt,
+      formData: requestData,
+      trustSettings: requestData.trustSettings,
+      trustScore: response.trustScore
+    });
+
+    res.json({
+      ...response,
+      promptId: id
+    });
+  } catch (error: any) {
+    console.error("Error generating prompt:", error);
+    res.status(500).json({
+      error: "Failed to generate prompt",
+      details: error.message
+    });
+  }
+});
+
+/**
+ * Run the publishing preflight process
+ */
+router.post("/api/preflight", async (req: Request, res: Response) => {
+  try {
+    const { title, content, categories = [], tags = [], mode, metadata = {} } = req.body;
+    
+    // Initialize state machine
+    const stateMachine = new PublishingStateMachine();
+    stateMachine.transition(PublishingState.PREFLIGHT);
+    
+    // Step 1: Ensure terms exist
+    const termsResult = await ensureTerms({ categories, tags });
+    
+    // Step 2: Generate title if not provided
+    const finalTitle = title || generateTitle({
+      mode,
+      goal: metadata.goal,
+      category: categories[0],
+      agentName: metadata.agentName,
+      platform: metadata.platform,
+      mediaStyle: metadata.mediaStyle
+    });
+    
+    // Step 3: Generate unique slug
+    const baseSlug = finalTitle.toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim();
+    
+    // Mock slug checker for now (in production, would check database)
+    const slugChecker = async (slug: string) => {
+      // Simulate checking database for existing slugs
+      const existingSlugs = await storage.getExistingSlugs?.() || [];
+      return existingSlugs.includes(slug);
+    };
+    
+    const finalSlug = await uniqueSlug(baseSlug, slugChecker);
+    
+    // Step 4: Build payload
+    const payload = buildPayload({
+      title: finalTitle,
+      slug: finalSlug,
+      content: content || '',
+      categories,
+      tags,
+      meta: metadata
+    });
+    
+    // Log preflight completion
+    await logPreflight('preflight_complete', {
+      title: finalTitle,
+      slug: finalSlug,
+      termsCreated: termsResult.created.length,
+      termsExisting: termsResult.existing.length
+    });
+    
+    // Transition to ready state
+    stateMachine.transition(PublishingState.READY_TO_PUBLISH);
+    
+    res.json({
+      success: true,
+      title: finalTitle,
+      slug: finalSlug,
+      termsResult,
+      payload,
+      state: stateMachine.getState(),
+      validation: {
+        isValid: payload.categories.length > 0 && payload.tags.length >= 3,
+        errors: [],
+        warnings: []
+      }
+    });
+  } catch (error: any) {
+    console.error("Preflight error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Preflight failed",
+      details: error.message
+    });
+  }
+});
+
+/**
+ * Create a draft (mock endpoint for now)
+ */
+router.post("/api/draft", async (req: Request, res: Response) => {
+  try {
+    const { payload } = req.body as { payload: PostPayload };
+    
+    // Store draft in memory with draft status
+    const id = await storage.createPrompt({
+      mode: 'template', // Default mode
+      title: payload.title,
+      promptText: payload.content,
+      formData: {},
+      trustSettings: {},
+      trustScore: 0,
+      status: 'draft'
+    });
+    
+    await logPreflight('draft_created', {
+      id,
+      title: payload.title,
+      slug: payload.slug
+    });
+    
+    res.json({
+      success: true,
+      draftId: id,
+      message: "Draft created successfully"
+    });
+  } catch (error: any) {
+    console.error("Draft creation error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to create draft",
+      details: error.message
+    });
+  }
+});
+
+/**
+ * Publish a prompt (mock endpoint for now)
+ */
+router.post("/api/publish", async (req: Request, res: Response) => {
+  try {
+    const { payload, validation } = req.body;
+    
+    // Check validation
+    if (!validation?.isValid) {
+      return res.status(400).json({
+        success: false,
+        error: "Validation failed",
+        details: "Cannot publish with validation errors"
+      });
+    }
+    
+    // Store published prompt
+    const id = await storage.createPrompt({
+      mode: 'template', // Default mode
+      title: payload.title,
+      promptText: payload.content,
+      formData: {},
+      trustSettings: {},
+      trustScore: 0,
+      status: 'published'
+    });
+    
+    await logPreflight('prompt_published', {
+      id,
+      title: payload.title,
+      slug: payload.slug
+    });
+    
+    res.json({
+      success: true,
+      publishedId: id,
+      message: "Prompt published successfully"
+    });
+  } catch (error: any) {
+    console.error("Publishing error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to publish",
+      details: error.message
+    });
+  }
+});
+
+/**
+ * Get all prompts.
+ */
+router.get("/api/prompts", async (req: Request, res: Response) => {
+  try {
+    const prompts = await storage.getAllPrompts();
+    res.json({ prompts });
+  } catch (error: any) {
+    console.error("Error fetching prompts:", error);
+    res.status(500).json({
+      error: "Failed to fetch prompts",
+      details: error.message
+    });
+  }
+});
+
+/**
+ * Get a single prompt by ID.
+ */
+router.get("/api/prompts/:id", async (req: Request, res: Response) => {
+  try {
+    const prompt = await storage.getPrompt(req.params.id);
+    if (!prompt) {
+      return res.status(404).json({ error: "Prompt not found" });
+    }
+    res.json(prompt);
+  } catch (error: any) {
+    console.error("Error fetching prompt:", error);
+    res.status(500).json({
+      error: "Failed to fetch prompt",
+      details: error.message
+    });
+  }
+});
+
+export default router;

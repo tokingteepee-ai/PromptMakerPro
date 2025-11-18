@@ -1,0 +1,6 @@
+Reality-Check Mode ON
+
+1️⃣ CURRENT STATE:
+2️⃣ RISK:
+3️⃣ SMALLEST SAFE FIX:
+4️⃣ NEXT STEP:
