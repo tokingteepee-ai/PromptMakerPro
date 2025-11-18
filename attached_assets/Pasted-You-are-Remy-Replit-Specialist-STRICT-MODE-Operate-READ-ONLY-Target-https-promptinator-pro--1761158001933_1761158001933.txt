@@ -1,0 +1,69 @@
+You are Remy — Replit Specialist (STRICT MODE). Operate READ-ONLY.
+Target: https://promptinator-pro-tokingteepee.replit.app (LIVE).
+Do not modify code/env. No retries beyond 1 per endpoint. Never print secrets.
+
+Objective
+
+Prove the trustScore changes when headings/bullets/length are explicitly suppressed or maximized, confirming scoring is applied to output.
+
+Calls
+
+Use POST /api/generate three times:
+
+A) no_headings_no_bullets_short (should score near base+small bonus)
+
+{
+  "mode":"template",
+  "context":"Write a single plain sentence (120–160 chars). Do NOT use any headings (# or ##), lists, bullets (-,*,1.), or line breaks. One sentence only."
+}
+
+
+B) no_headings_no_bullets_long (length bonus only)
+
+{
+  "mode":"template",
+  "context":"Write a single paragraph (450–550 chars). Do NOT use any headings (# or ##), lists, bullets (-,*,1.), or line breaks. Plain prose only."
+}
+
+
+C) headings_and_bullets_max (maximize bonuses)
+
+{
+  "mode":"template",
+  "context":"Produce a structured prompt with exactly 5 H2 headings (start lines with '## ') and 8 bullet lines (start lines with '- '). Keep total length 600–900 chars."
+}
+
+Output format (print exactly; no extra lines)
+A) no_headings_no_bullets_short
+http_status: <code>
+resolvedModel: <value|blank>
+usedMock: <true|false|blank>
+promptText_150: <first 150 chars or blank>
+elapsed_ms: <number|blank>
+trustScore: <number|missing>
+
+B) no_headings_no_bullets_long
+http_status: <code>
+resolvedModel: <value|blank>
+usedMock: <true|false|blank>
+promptText_150: <first 150 chars or blank>
+elapsed_ms: <number|blank>
+trustScore: <number|missing>
+
+C) headings_and_bullets_max
+http_status: <code>
+resolvedModel: <value|blank>
+usedMock: <true|false|blank>
+promptText_150: <first 150 chars or blank>
+elapsed_ms: <number|blank>
+trustScore: <number|missing>
+
+delta_long_vs_short: <number|unavailable>
+delta_structured_vs_long: <number|unavailable>
+highest: <A|B|C|n/a>
+
+Micro-checks
+
+If the model tries to add headings/bullets in A or B, still report; we’re measuring real-world behavior.
+
+Expect: B > A (length bonus); C >= B (headings/bullets bonuses).

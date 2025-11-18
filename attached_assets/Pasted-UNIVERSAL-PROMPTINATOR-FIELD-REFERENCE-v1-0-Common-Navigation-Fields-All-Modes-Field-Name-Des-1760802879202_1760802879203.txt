@@ -1,0 +1,52 @@
+UNIVERSAL PROMPTINATOR FIELD REFERENCE (v1.0)
+🔹 Common Navigation Fields (All Modes)
+Field Name	Description
+Prompt Mode	Choose the prompt type: Prompt Template, Prompt Engineer Agent, or Media Prompt Blueprint.
+Prompt Title	Name this prompt (2–4 words). Use clear, functional titles (e.g., "LinkedIn Post Writer", not "My Prompt").
+🔹 Prompt Template (Structured for Claude/GPT)
+Field Name	Description
+Prompt Title	(See universal fields)
+Goal	What is the prompt supposed to achieve? Be specific (e.g., "Summarize meeting notes", "Create sales email").
+Target Audience	Who is the AI writing for? (e.g., developers, students, marketers). Guides tone and content.
+Tone/Style	Choose the communication tone (e.g., Formal, Friendly, Persuasive, Witty).
+Key Offer/Value	What value, feature, or insight does the content need to deliver to the reader?
+Output Format	Select the expected format: Text, Code, Bullet Points, Table, JSON, etc.
+Output Length	Choose: Short, Medium, Long, Very Long — defines how detailed the AI's response should be.
+Experience Level	Pick user skill level: Beginner, Intermediate, Advanced, or Expert. Affects complexity of output.
+AI Model(s)	Select the specific models the prompt is designed for. Supports multiple checkboxes (e.g., GPT-4 Turbo, Claude Opus).
+Industry/Niche	Which sector or subject is this for? (e.g., AI, Education, Marketing). Adds context for better prompts.
+Content to Avoid	Optional. List topics, phrases, or tone to filter out (e.g., Jargon, Politics, Humor).
+Accuracy Level	Choose: General, High, or Critical — affects how fact-checked the output should be.
+Citation Requirements	Toggle if AI output must include sources, citations, or verified claims.
+SEO Keywords	Optional. Add target SEO keywords to incorporate naturally in output.
+🔹 Prompt Engineer Agent (AI Persona for Media Tools)
+Field Name	Description
+Prompt Title	(See universal fields)
+Media Tool	Select the target AI media platform (e.g., HeyGen, Runway, Pika, ElevenLabs, Leonardo.ai).
+Specialization Focus	Define what this agent specializes in (e.g., explainer videos, podcast visuals, sound effects).
+Expertise Level	Select the technical level expected of the agent’s output (Beginner–Expert).
+Persona Integrity Tags	Pick values this agent should uphold: Respectful, Factual, Privacy-Conscious, etc.
+Trust & Safety Settings	Enable safety filters: clarity level, ethical guardrails, and consent-safe output.
+Safety Rubric	Choose your moderation strictness (Strict, Balanced, Light).
+Content Type	Choose: Fact-based, Opinion-based, or Balanced output style.
+Clarity Check Level	Set on a scale of 1–5: how clearly the AI must explain its results.
+Consent-Safe Mode	Toggle ON to ensure user privacy, data safety, and non-extractive behavior.
+🔹 Media Prompt Blueprint (Platform-Ready Pasteables)
+Field Name	Description
+Prompt Title	(See universal fields)
+Target Platform	Select the destination platform (e.g., Midjourney, HeyGen, Pika, Runway, ElevenLabs).
+Output Format	Choose desired result type: Image, Video, Music, Sound FX, Animation, Voice Clone, etc.
+Media Style / Genre	Define creative or cinematic style (e.g., "Tribal Sci-Fi", "Flat Design", "Realistic Anime").
+Content Focus	What is the blueprint trying to generate? (e.g., Aerial drone shot of mountain temple at dusk).
+Mood / Emotion	Describe the intended vibe: Hopeful, Dark, Joyful, Tense, Dreamy, etc.
+Use Case	What will this media be used for? (e.g., YouTube intro, documentary cutaway, podcast bumper).
+Safety Layer	Same as Agent view: choose content type (Fact/Opinion/Mixed), clarity level, and consent-safe mode.
+🛡 Trust & Safety Layer (Shared Across Agent + Media Modes)
+Field Name	Description
+Safety Mode	Toggle ON to reject harmful/unethical prompts.
+Safety Rubric	Choose level of moderation: Strict, Balanced, or Open.
+Content Type	Choose content basis: Facts (Proof), Opinion (Perspective), or Mixed.
+Clarity Check Level	Slider from 1–5: how rigorously to enforce clarity in prompt output.
+Consent-Safe Mode	Toggle to ensure data privacy and ethical compliance.
+Ethical Guardrails	Enable AI to follow core ethical behaviors.
+Persona Integrity Tags	Tags like: Factual, Bias-Aware, Privacy-Conscious, Transparent, Respectful.

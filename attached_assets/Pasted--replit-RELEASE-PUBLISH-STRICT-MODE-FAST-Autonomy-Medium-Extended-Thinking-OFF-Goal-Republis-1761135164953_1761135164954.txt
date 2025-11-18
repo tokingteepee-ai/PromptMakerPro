@@ -1,0 +1,64 @@
+@replit RELEASE PUBLISH — STRICT MODE — FAST, Autonomy=Medium, Extended Thinking=OFF
+
+Goal: Republish the stable Promptinator release already produced in /shared/releases. Create a manifest entry, checkpoint/tag the repo, append release log, and return public URL(s) if available.
+
+SAFETY RULES:
+- Read-only except writing the manifest + log + checkpoint.
+- Do not print secrets or modify other files.
+- If any verification step fails twice, STOP and return logs; do not proceed.
+
+STEPS (execute exactly in order):
+
+1) Identify latest release zip
+- List /shared/releases for files matching `promptinator_v*.zip`.
+- Pick the newest by filename timestamp or modified time.
+- If none found, STOP and return: "NO_ZIP_FOUND".
+
+2) Compute checksum & size (read-only)
+- Compute SHA256 and size_bytes for the selected zip.
+- Return one-line: "<filename> | <size_bytes> | sha256:<hash>"
+
+3) Quick live verification (safety)
+- POST /api/generate with aiModels:"claude-sonnet-preferred" and formData goal:"release sanity"
+- Return: HTTP status, metadata.resolvedModel, metadata.usedMock, first 120 chars of promptText, elapsed ms.
+- If status != 200 or usedMock==true, STOP and return last 30 Anthropic-related log lines.
+
+4) Append release manifest entry (safe write)
+- File: /shared/releases/release_manifest.json
+- If file missing, create as JSON array `[]`.
+- Append object:
+  {
+    "version": "<derived-from-filename-or-package.json>",
+    "file": "<filename>",
+    "sha256": "<hash>",
+    "size_bytes": <size>,
+    "resolvedModel": "claude-3-7-sonnet-20250219",
+    "published_at": "<utc-iso>",
+    "status": "published"
+  }
+- Save file and return one-line confirmation: "MANIFEST_UPDATED: <filename>"
+
+5) Create checkpoint / tag
+- Create a platform checkpoint or repo tag named: "release-published-<version>"
+- Commit message: "release: published v<version> (claude-3-7 lock)"
+- Return: "CHECKPOINT_CREATED: release-published-<version>"
+
+6) Append release log
+- Append one-line to /logs/diagnostics/release_published_<timestamp>.log:
+  "<utc-iso> version=<version> file=<filename> sha256=<hash> size=<size_bytes> status=published"
+- Return appended line.
+
+7) Public URL(s) (if route exists)
+- If server route `/releases/:file` is present and server reachable, return for the file:
+  `https://promptinator-pro-tokingteepee.replit.app/releases/<filename>`
+- Otherwise return: "NO_PUBLIC_ROUTE — download via Files panel: /shared/releases/<filename>"
+
+FINAL OUTPUT (single response)
+- filename, size, sha256
+- quick verify one-line result (HTTP/resolvedModel/usedMock/elapsed)
+- manifest update confirmation
+- checkpoint created message
+- appended release log line
+- public URL or note to download from Files panel
+
+END.

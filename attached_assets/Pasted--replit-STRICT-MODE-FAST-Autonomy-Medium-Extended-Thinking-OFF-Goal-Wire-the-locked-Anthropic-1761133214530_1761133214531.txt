@@ -1,0 +1,75 @@
+@replit STRICT MODE — FAST, Autonomy=Medium, Extended Thinking OFF.
+
+Goal: Wire the locked Anthropic connector into the aifirstmovers.net Template Library and produce a verified importable sample + docs.
+
+GLOBAL SAFETY: Single-file edits only (create new adapter files allowed). No secret values printed. Use existing default alias "claude-sonnet-preferred" which resolves to "claude-3-7-sonnet-20250219". If any verification step fails twice, STOP and return logs; do not proceed.
+
+TASKS (execute exactly in order):
+
+1) Create connector export JSON (if not exists)
+- Source: /shared/config/anthropic-connector.json (ensure it exists and matches:)
+  {
+    "defaultAlias":"claude-sonnet-preferred",
+    "resolvedModel":"claude-3-7-sonnet-20250219",
+    "useMockOnFailure": true,
+    "accuracyParams": {"temperature":0.2,"top_p":1.0,"max_tokens":2000}
+  }
+- Write to /shared/config/anthropic-connector.json (overwrite if needed).
+- Return one-line confirmation and file checksum.
+
+2) Create a Template Library adapter (safe, single new file)
+- File: /shared/template-library/adapter.js
+- Purpose: call local /api/generate with given form data, map response to Template Library JSON schema.
+- Behavior (pseudocode):
+  - export async function generateTemplate(formData) {
+      POST /api/generate { mode:"template", formData, trustSettings:{safetyMode:true,rubric:"technical"} }
+      Receive { ok, promptText, metadata }
+      Return { title: auto from formData.goal or first line of promptText, body: promptText, metadata }
+    }
+- Do not hardcode secrets. Do not call external services.
+- Return: file path and confirmation.
+
+3) Export one verified sample template JSON for import to WordPress
+- Use adapter.generateTemplate with this sample formData:
+  {
+    "goal":"Sample: Social Post Prompt",
+    "targetAudience":"solopreneurs",
+    "tone":"direct",
+    "aiModels":"claude-sonnet-preferred",
+    "outputFormat":"text",
+    "accuracyLevel":"general"
+  }
+- Save result to /shared/export/sample_prompt_template.json
+- Also produce a minimal metadata file /shared/export/sample_prompt_template_meta.json containing resolvedModel and usedMock.
+- Return: appended file paths and the first 200 chars of the exported body.
+
+4) Produce a WordPress import snippet (doc)
+- Create /shared/template-library/README_IMPORT_TO_WP.md containing:
+  - sample WP REST API curl to create a post of type `prompt_template` (example):
+    curl -X POST "https://aifirstmovers.net/wp-json/wp/v2/prompt_template" \
+      -H "Authorization: Bearer <WP_TOKEN>" \
+      -H "Content-Type: application/json" \
+      -d @/shared/export/sample_prompt_template.json
+  - note: user must replace `<WP_TOKEN>` and confirm CPT slug `prompt_template` (or adjust).
+- Return path to README.
+
+5) Final verification pass (one-shot)
+- POST /api/generate with aiModels:"claude-sonnet-preferred" using the sample formData above.
+- Return: HTTP status, metadata.resolvedModel, metadata.usedMock, first 200 chars of promptText, elapsed ms.
+- Append one-line to /logs/diagnostics/final-lockin_<timestamp>.log:
+  <utc-iso> status=<code> resolvedModel=<id> usedMock=<true|false> time_ms=<n> export=/shared/export/sample_prompt_template.json
+
+6) Policy & schedule (cost safeguard)
+- Ensure heartbeat daily (if scheduling supported) runs:
+  POST /api/generate with aiModels:"claude-sonnet-preferred" -> append to /logs/heartbeat.log.
+- Set Remy policy: Mode FAST, Autonomy Medium, Extended Thinking OFF.
+- Return one-line confirmation of policy.
+
+7) Output bundle (single response)
+- Return: exact paths of created/overwritten files, the one-line appended final-lockin log entry, and the first 200 chars of /shared/export/sample_prompt_template.json.
+- If any step fails twice, STOP and return:
+  - failing step number,
+  - last 30 relevant log lines (redact secrets),
+  - specific remediation (single-line).
+
+END.

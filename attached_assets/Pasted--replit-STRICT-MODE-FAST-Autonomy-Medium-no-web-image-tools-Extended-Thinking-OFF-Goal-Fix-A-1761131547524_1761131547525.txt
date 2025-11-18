@@ -1,0 +1,57 @@
+@replit STRICT MODE — FAST, Autonomy=Medium, no web/image tools, Extended Thinking OFF.
+
+Goal: Fix Anthropic settings so Promptinator uses the most accurate Sonnet model for prompt-template generation.
+
+Tasks (do exactly in order):
+
+1) Identify model map
+- Locate Anthropic model config (likely: server/promptGenerator.ts or config/models.ts).
+- Do not change unrelated code.
+
+2) Add a stable Anthropic alias + fallback chain
+- Create alias key: "claude-sonnet-preferred".
+- Candidate order (keep only those returning 200 OK):
+   ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20240620"]
+- Remove/ignore any "claude-3-5-sonnet-20241022" entries.
+- Request parameters for accuracy:
+   temperature: 0.2
+   top_p: 1.0
+   max_tokens: 2000
+   stop_sequences: null
+   system: "You are optimizing AI prompt templates: enforce section headers, bullet clarity, guardrails, and zero fluff."
+
+3) Wire alias into selection logic
+- If formData.aiModels === "claude-sonnet-preferred", resolve to the first available candidate.
+- On Anthropic error:
+   • If 404 (not_found): try next candidate once.
+   • If 429/5xx: one retry with small backoff (e.g., 300–500ms), then try next candidate once.
+- Before falling back to mock, exhaust the chain.
+- Include {"resolvedModel":"<final-model-id>","usedMock":false|true} in response metadata.
+
+4) Verify live availability & accuracy (no extended thinking)
+- Run POSTs to /api/generate:
+  A) {"mode":"template","formData":{"goal":"accuracy check","targetAudience":"QA","tone":"neutral","aiModels":"claude-3-7-sonnet-20250219","outputFormat":"text","accuracyLevel":"general"},"trustSettings":{"safetyMode":true,"rubric":"technical"}}
+  B) {"mode":"template","formData":{"goal":"accuracy check","targetAudience":"QA","tone":"neutral","aiModels":"claude-3-5-sonnet-20240620","outputFormat":"text","accuracyLevel":"general"},"trustSettings":{"safetyMode":true,"rubric":"technical"}}
+  C) {"mode":"template","formData":{"goal":"accuracy check","targetAudience":"QA","tone":"neutral","aiModels":"claude-sonnet-preferred","outputFormat":"text","accuracyLevel":"general"},"trustSettings":{"safetyMode":true,"rubric":"technical"}}
+
+5) Score outputs (quick rubric)
+- Structure completeness (Role, Goal, Target Audience, Instructions, Constraints) — 0–3
+- Clarity (short, imperative, checklist-ready) — 0–3
+- Guardrails (no filler, safety cues) — 0–2
+- Hallucination check (no fake links/IDs) — 0–2
+- Pick highest total; tie-break: longest valid sectioned output without fluff.
+
+6) Set default + commit
+- Set defaultAnthropicModel = "claude-sonnet-preferred".
+- Keep fallback chain + error policy.
+- Single commit: "feat(anthropic): enforce claude-sonnet-preferred with accuracy params + fallback rotation".
+
+7) App testing (once)
+- Exercise /api/generate with "chatgpt-5", "claude-sonnet-preferred", "grok-super".
+- Attach results.
+
+8) Log + report
+- Write /logs/diagnostics/anthropic-selection_<timestamp>.log with:
+  availability (HTTP), rubric scores, resolvedModel, usedMock.
+- Return compact table:
+  Model | HTTP | Score | resolvedModel | usedMock

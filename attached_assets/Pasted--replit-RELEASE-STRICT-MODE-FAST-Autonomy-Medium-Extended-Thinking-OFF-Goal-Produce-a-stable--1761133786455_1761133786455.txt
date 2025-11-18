@@ -1,0 +1,66 @@
+@replit RELEASE — STRICT MODE, FAST, Autonomy=Medium, Extended Thinking=OFF
+
+Goal: Produce a stable, republished release bundle of Promptinator (lock-in build) and create release artifacts for later WP integration. Do not modify secrets or perform any external uploads. If any verification step fails twice, STOP and return logs.
+
+GLOBAL SAFETY:
+- No secret values printed.
+- No changes outside repo roots unless explicitly stated.
+- Prefer single-file edits (package.json version bump + CHANGELOG).
+- Use platform checkpoint/commit for release snapshot.
+
+STEPS (execute exactly in order):
+
+1) Sanity verification (read-only)
+- Run App testing scope: /api/generate (models: chatgpt-5, claude-sonnet-preferred, grok-super).
+- For each model return: HTTP status, metadata.resolvedModel, metadata.usedMock, first 120 chars, elapsed ms.
+- If any Anthropic call returns usedMock=true or non-200, STOP and return the last 30 Anthropic-related log lines.
+
+2) Bump package version (single-file)
+- Read current version in package.json.
+- Increment patch version (semver) e.g., 1.2.3 → 1.2.4.
+- Update package.json version field only.
+- Commit/checkpoint with message: "release: v<new-version> stable (claude-3-7 lock)"
+- Return new version string and one-line git diff context.
+
+3) Update CHANGELOG.md (single-file append)
+- Append one brief entry under the new version with date (UTC) and bullets:
+  - Locked Anthropic connector to claude-3-7-sonnet-20250219
+  - Removed retired candidate claude-3-5-sonnet-20240620
+  - Added resolvedModel metadata and enhanced 404 logging
+  - Created sample export for Template Library
+- Commit/checkpoint with message: "docs: changelog for v<new-version>"
+- Return appended changelog snippet (3 lines).
+
+4) Build & test (blocking)
+- Run: npm run build (or ts compile) — return PASS/FAIL and first 50 lines of output.
+- Run: npm run lint (or npm test) — return PASS/FAIL and first 50 lines of output.
+- If either fails, STOP and return logs (first 100 lines) and remediation suggestions.
+
+5) Create release bundle (artifact)
+- Create directory: /shared/releases/promptinator_v<new-version>/
+- Copy into it: package.json, package-lock.json (if present), server/, client/, /shared/config/anthropic-connector.json, /shared/template-library/adapter.js, /shared/export/sample_prompt_template.json, README.md, CHANGELOG.md
+- Create zip: /shared/releases/promptinator_v<new-version>.zip
+- Return: path to zip and SHA256 checksum.
+
+6) Checkpoint & tag
+- Create a platform checkpoint (or git tag if available) named: "v<new-version>-stable"
+- Commit message: "chore(release): v<new-version> stable"
+- Return confirmation "CHECKPOINT CREATED: v<new-version>-stable" and a short diff summary.
+
+7) Release log entry
+- Append one-line to /logs/diagnostics/release_<timestamp>.log:
+  <utc-iso> version=<new-version> artifact=/shared/releases/promptinator_v<new-version>.zip status=BUILT tests=PASS time_ms=<total_build_time>
+- Return appended line.
+
+8) Post-release verification (quick smoke)
+- Run one final POST /api/generate with aiModels:"claude-sonnet-preferred" and sample formData (same as sample export) — return HTTP, resolvedModel, usedMock, first 150 chars, elapsed ms.
+- If OK, return "RELEASE READY: v<new-version>"
+
+OUTPUT REQUIRED:
+- New version string
+- Build PASS/FAIL
+- Path to zip and checksum
+- Final one-line release log entry
+- Final smoke test single-line result
+
+END.

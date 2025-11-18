@@ -1,0 +1,224 @@
+WordPress Integration - Complete Implementation Instructions
+OBJECTIVE
+Add WordPress REST API integration to save generated prompts to the AI First Movers community library at aifirstmovers.net.
+
+WORDPRESS API CONFIGURATION
+Endpoint: https://aifirstmovers.net/wp-json/wp/v2/prompts
+Authentication: Basic Auth with Application Passwords
+Environment Variables Required:
+
+WP_USERNAME - WordPress username
+WP_APP_PASSWORD - WordPress application password
+
+
+TEMPLATE METADATA MAPPING
+Add this complete mapping object to your codebase:
+javascriptconst TEMPLATE_METADATA = {
+  'general_prompt': {
+    category: 60,
+    useCases: [64],
+    aiModels: [83]
+  },
+  'task_execution': {
+    category: 61,
+    useCases: [68],
+    aiModels: [83]
+  },
+  'business_strategy': {
+    category: 44,
+    useCases: [66, 74],
+    aiModels: [57, 52, 56]
+  },
+  'marketing_copy': {
+    category: 44,
+    useCases: [73, 47],
+    aiModels: [57, 52]
+  },
+  'book_longform': {
+    category: 60,
+    useCases: [64],
+    aiModels: [57, 75]
+  },
+  'solopreneur_workflow': {
+    category: 61,
+    useCases: [68, 66],
+    aiModels: [83]
+  },
+  'persona_simulation': {
+    category: 63,
+    useCases: [64, 65],
+    aiModels: [83]
+  },
+  'prompt_engineer': {
+    category: 45,
+    useCases: [72],
+    aiModels: [83]
+  },
+  'system_prompt_architect': {
+    category: 45,
+    useCases: [72],
+    aiModels: [75, 52, 56]
+  },
+  'multi_agent_coordinator': {
+    category: 45,
+    useCases: [72],
+    aiModels: [83]
+  },
+  'claude_specific': {
+    category: 45,
+    useCases: [72],
+    aiModels: [57, 75, 53]
+  },
+  'schema_diff_auditor': {
+    category: 45,
+    useCases: [72],
+    aiModels: [83]
+  },
+  'promptinator_architect': {
+    category: 45,
+    useCases: [72],
+    aiModels: [83]
+  },
+  'remy_replit': {
+    category: 45,
+    useCases: [72],
+    aiModels: [83]
+  },
+  'image_blueprint': {
+    category: 62,
+    useCases: [70],
+    aiModels: [76, 77, 78, 79]
+  },
+  'video_blueprint': {
+    category: 62,
+    useCases: [69],
+    aiModels: [80]
+  },
+  'music_blueprint': {
+    category: 62,
+    useCases: [71],
+    aiModels: [81, 82]
+  },
+  'sound_effects_blueprint': {
+    category: 62,
+    useCases: [71],
+    aiModels: [81, 82]
+  },
+  'multimodal_blueprint': {
+    category: 62,
+    useCases: [69, 70, 71],
+    aiModels: [83]
+  }
+};
+
+SAVE TO WORDPRESS FUNCTION
+Implement this function:
+javascriptasync function savePromptToWordPress(promptTitle, promptContent, templateMode) {
+  const wpUsername = process.env.WP_USERNAME;
+  const wpAppPassword = process.env.WP_APP_PASSWORD;
+  
+  if (!wpUsername || !wpAppPassword) {
+    throw new Error('WordPress credentials not configured');
+  }
+  
+  const metadata = TEMPLATE_METADATA[templateMode];
+  if (!metadata) {
+    throw new Error(`Unknown template mode: ${templateMode}`);
+  }
+  
+  const requestBody = {
+    title: promptTitle,
+    content: promptContent,
+    status: 'publish',
+    'prompt-category': [metadata.category],
+    'use-case': metadata.useCases,
+    'ai-model': metadata.aiModels
+  };
+  
+  try {
+    const response = await fetch('https://aifirstmovers.net/wp-json/wp/v2/prompts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Basic ' + btoa(`${wpUsername}:${wpAppPassword}`)
+      },
+      body: JSON.stringify(requestBody)
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.message || `HTTP ${response.status}`);
+    }
+    
+    return {
+      success: true,
+      id: data.id,
+      url: data.link,
+      title: data.title.rendered
+    };
+    
+  } catch (error) {
+    console.error('WordPress API Error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+UI REQUIREMENTS
+After prompt generation, add:
+
+Button: "Save to Community Library"
+Input field: "Prompt Title" (pre-filled with template name + date, editable)
+Loading state: Show "Saving..." when request is in progress
+Success message: "✓ Saved to library! View prompt →" with link
+Error message: Display error with retry option
+Disable button after successful save to prevent duplicates
+
+
+VALIDATION
+Before saving:
+
+Title must not be empty
+Title must be < 200 characters
+Content must not be empty
+Template mode must exist in TEMPLATE_METADATA
+
+
+ERROR HANDLING
+Handle these errors:
+
+401: "Authentication error. Contact support."
+400: "Invalid data. Please try again."
+Network errors: "Connection error. Check internet."
+Unknown errors: Log full error, show generic message
+
+
+TESTING
+Test with "Business Strategy Template":
+
+Generate a prompt
+Click "Save to Library"
+Check WordPress admin → Prompts
+Verify new prompt has:
+
+Correct title
+Full content
+Category: Business & Marketing (44)
+Use Cases: Business Strategy (66), Research & Analysis (74)
+AI Models: Claude Opus 4.1 (57), ChatGPT-4o (52), SuperGrok (56)
+
+
+
+
+SECURITY
+
+Never log WP_APP_PASSWORD
+Never expose credentials in client code
+Use environment variables only
+Validate all inputs before sending
+
+
+Implement this integration now. Confirm when complete and provide test results.
