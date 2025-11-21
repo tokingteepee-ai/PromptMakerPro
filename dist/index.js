@@ -241,7 +241,7 @@ ${formData.platform === "midjourney" ? "--ar " + (formData.aspectRatio || "16:9"
   return "Mock prompt generated for unknown mode";
 }
 function getSystemPrompt(mode, trustSettings) {
-  const basePrompt = `You are Promptinator, an expert AI prompt engineer specializing in creating highly effective, structured prompts for AI platforms and media generation tools.`;
+  const basePrompt = `You are Prompt Maker, an expert AI prompt engineer specializing in creating highly effective, structured prompts for AI platforms and media generation tools.`;
   const safetyGuidelines = trustSettings.safetyMode ? `
 SAFETY REQUIREMENTS:
 - Reject any prompts that could generate harmful, unethical, or inappropriate content
@@ -778,6 +778,158 @@ function generateRandomSuffix(length) {
   return result;
 }
 
+// shared/wordpress-metadata.ts
+var TEMPLATE_METADATA = {
+  template: {
+    label: "Prompt Template",
+    description: "Single structured prompt template for a task or workflow.",
+    category: "Prompt Templates"
+  },
+  agent: {
+    label: "Prompt Agent",
+    description: "Multi-step or persona-style agent prompt with a role, context, and workflow.",
+    category: "Agents"
+  },
+  media: {
+    label: "Media Blueprint",
+    description: "Prompt blueprint tailored for media generation (video, image, audio, etc.).",
+    category: "Media"
+  }
+};
+
+// server/services/wordpressPublisher.ts
+async function savePromptToWordPress(promptTitle, promptContent, templateMode) {
+  const wpUsername = process.env.WP_USERNAME;
+  const wpAppPassword = process.env.WP_APP_PASSWORD;
+  if (wpUsername && !wpAppPassword || !wpUsername && wpAppPassword) {
+    console.error("[WordPress] Partial credentials configured - missing username or password");
+    return {
+      success: false,
+      error: "WordPress publishing service misconfigured. Please contact support."
+    };
+  }
+  if (!wpUsername || !wpAppPassword) {
+    console.warn("[WordPress] Credentials not configured - WP_USERNAME and WP_APP_PASSWORD required");
+    return {
+      success: false,
+      error: "WordPress publishing is not currently available. Please contact support."
+    };
+  }
+  const metadata = TEMPLATE_METADATA[templateMode];
+  if (!metadata) {
+    console.error("[WordPress] Invalid template mode provided:", templateMode);
+    return {
+      success: false,
+      error: "Invalid template mode. Please select a valid template from the dropdown."
+    };
+  }
+  const requestBody = {
+    title: promptTitle,
+    content: promptContent,
+    status: "publish",
+    "prompt-category": [metadata.category],
+    "use-case": metadata.useCases,
+    "ai-model": metadata.aiModels
+  };
+  try {
+    console.log("=== WordPress POST Request Debug ===");
+    console.log("[WordPress] 1. Request Body:", JSON.stringify(requestBody, null, 2));
+    console.log("[WordPress] 2. Template Mode:", templateMode);
+    console.log("[WordPress] 3. Metadata:", JSON.stringify(metadata, null, 2));
+    console.log("[WordPress] 4. Username:", wpUsername ? `${wpUsername.substring(0, 3)}***` : "NOT SET");
+    console.log("[WordPress] 5. Password:", wpAppPassword ? "***SET***" : "NOT SET");
+    const authHeader = "Basic " + Buffer.from(`${wpUsername}:${wpAppPassword}`).toString("base64");
+    console.log("[WordPress] 6. Making POST request to:", "https://aifirstmovers.net/?promptinator_api=1");
+    const response = await fetch("https://aifirstmovers.net/?promptinator_api=1", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": authHeader
+      },
+      body: JSON.stringify(requestBody)
+    });
+    console.log("[WordPress] 7. Response Status:", response.status, response.statusText);
+    console.log("[WordPress] 8. Response Headers:", JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2));
+    const responseText = await response.text();
+    console.log("[WordPress] 9. Raw Response Text:", responseText);
+    let data;
+    try {
+      data = JSON.parse(responseText);
+      console.log("[WordPress] 10. Parsed Response Data:", JSON.stringify(data, null, 2));
+    } catch (parseError) {
+      console.error("[WordPress] 11. JSON Parse Error:", parseError);
+      console.error("[WordPress] 12. Response was not valid JSON");
+      return {
+        success: false,
+        error: `Invalid response from WordPress: ${responseText.substring(0, 200)}`
+      };
+    }
+    if (!response.ok) {
+      console.error("[WordPress] 13. API Error Response:", {
+        status: response.status,
+        statusText: response.statusText,
+        errorCode: data.code,
+        errorMessage: data.message,
+        errorData: data.data,
+        fullResponse: data
+      });
+      let errorMessage = data.message || `HTTP ${response.status}: ${response.statusText}`;
+      if (data.data?.params) {
+        errorMessage += ` | Invalid params: ${Object.keys(data.data.params).join(", ")}`;
+      }
+      if (data.code) {
+        errorMessage += ` (${data.code})`;
+      }
+      console.error("[WordPress] 14. Final Error Message:", errorMessage);
+      return {
+        success: false,
+        error: errorMessage
+      };
+    }
+    console.log("[WordPress] Prompt published successfully:", {
+      id: data.id,
+      url: data.link
+    });
+    return {
+      success: true,
+      id: data.id,
+      url: data.link,
+      title: data.title?.rendered || promptTitle
+    };
+  } catch (error) {
+    console.error("[WordPress] Network/fetch error:", error);
+    let errorMessage = "Connection error. Please check your internet connection.";
+    if (error.message?.includes("ENOTFOUND") || error.message?.includes("ETIMEDOUT")) {
+      errorMessage = "Cannot reach WordPress server. Please try again later.";
+    } else if (error.message && !error.message.includes("fetch")) {
+      errorMessage = error.message;
+    }
+    return {
+      success: false,
+      error: errorMessage
+    };
+  }
+}
+function validateWordPressPublish(title, content) {
+  const errors = [];
+  if (!title || title.trim().length === 0) {
+    errors.push("Title cannot be empty");
+  }
+  if (title && title.length > 200) {
+    errors.push("Title must be less than 200 characters");
+  }
+  if (!content || content.trim().length === 0) {
+    errors.push("Content cannot be empty");
+  }
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+// server/routes.ts
+import { z } from "zod";
+
 // server/routes/releases.ts
 import express from "express";
 import path2 from "path";
@@ -1110,8 +1262,53 @@ Constraints: ${JSON.stringify(trustSettings ?? {})}`;
     } catch (error) {
       console.error("Error fetching prompt:", error);
       res.status(500).json({
-        error: "Failed to fetch prompt",
+        error: "Failed to fetch prompts",
         details: error.message
+      });
+    }
+  });
+  app2.post("/api/wordpress/publish", async (req, res) => {
+    try {
+      const wpPublishSchema = z.object({
+        title: z.string().min(1, "Title is required").max(200, "Title must be less than 200 characters"),
+        content: z.string().min(1, "Content is required").max(1e5, "Content is too large"),
+        templateMode: z.enum(Object.keys(TEMPLATE_METADATA), {
+          errorMap: () => ({ message: "Invalid template mode" })
+        })
+      });
+      const parseResult = wpPublishSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        const errors = parseResult.error.errors.map((e) => e.message);
+        console.warn("[API /api/wordpress/publish] Validation failed:", errors);
+        return res.status(400).json({
+          success: false,
+          error: "Invalid request data",
+          details: errors
+        });
+      }
+      const { title, content, templateMode } = parseResult.data;
+      const validation = validateWordPressPublish(title, content);
+      if (!validation.valid) {
+        return res.status(400).json({
+          success: false,
+          error: "Validation failed",
+          details: validation.errors
+        });
+      }
+      const result = await savePromptToWordPress(title, content, templateMode);
+      if (result.success) {
+        console.log("[API /api/wordpress/publish] Success:", result);
+        res.json(result);
+      } else {
+        console.error("[API /api/wordpress/publish] Failed:", result.error);
+        const statusCode = result.error?.includes("Authentication") || result.error?.includes("credentials") ? 401 : result.error?.includes("Invalid") ? 400 : 500;
+        res.status(statusCode).json(result);
+      }
+    } catch (error) {
+      console.error("[API /api/wordpress/publish] Unexpected error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Server error while publishing to WordPress"
       });
     }
   });
