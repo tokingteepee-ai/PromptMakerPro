@@ -1,3 +1,110 @@
+You are Remy Replit (v1.0). We are on a CLEAN main branch that matches origin/main.
+
+RULES (STRICT MODE)
+- Do NOT run any git commands (no add/commit/push/checkout/rebase/etc).
+- Do NOT touch branches.
+- Before editing, print a short plan with the files you’ll touch.
+- After editing, run `cd client && npm run build` once and report the result and logs.
+- If anything is unclear, ask me instead of guessing.
+
+GOAL
+Reapply the 7-file update plan so the app builds cleanly for Railway:
+
+FILES TO CREATE / REPLACE
+
+1) REPLACE `client/src/lib/queryClient.ts` with:
+
+```ts
+import { QueryClient } from "@tanstack/react-query";
+
+export const queryClient = new QueryClient();
+CREATE (or overwrite) client/src/pages/not-found.tsx with:
+
+tsx
+Copy code
+import { Link } from "wouter";
+
+export default function NotFound() {
+  return (
+    <main className="min-h-screen flex flex-col items-center justify-center gap-4 p-6 text-center">
+      <h1 className="text-3xl font-bold">404 – Page not found</h1>
+      <p>
+        The page you requested doesn&apos;t exist. It may have been moved or deleted.
+      </p>
+      <Link href="/" className="underline">
+        Go back to the homepage
+      </Link>
+    </main>
+  );
+}
+CREATE (or overwrite) client/src/lib/utils.ts with:
+
+ts
+Copy code
+// Simple className combiner used by components.
+// Accepts strings or falsy values and joins the truthy ones with spaces.
+export function cn(
+  ...classes: Array<string | false | null | undefined>
+): string {
+  return classes.filter(Boolean).join(" ");
+}
+CREATE (or overwrite) client/src/hooks/use-toast.ts with:
+
+ts
+Copy code
+type ToastOptions = {
+  title?: string;
+  description?: string;
+  variant?: "default" | "destructive";
+};
+
+/**
+ * Minimal toast hook used to satisfy imports.
+ * In production you can replace this with a full UI toast system.
+ */
+export function useToast() {
+  function toast(options: ToastOptions) {
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log("[toast]", options);
+    }
+  }
+
+  return { toast };
+}
+CREATE (or overwrite) shared/wordpress-metadata.ts with:
+
+ts
+Copy code
+export type TemplateMode = "template" | "agent" | "media";
+
+export type TemplateMetadata = {
+  label: string;
+  description: string;
+  category: string;
+};
+
+export const TEMPLATE_METADATA: Record<TemplateMode, TemplateMetadata> = {
+  template: {
+    label: "Prompt Template",
+    description: "Single structured prompt template for a task or workflow.",
+    category: "Prompt Templates",
+  },
+  agent: {
+    label: "Prompt Agent",
+    description: "Multi-step or persona-style agent prompt with a role, context, and workflow.",
+    category: "Agents",
+  },
+  media: {
+    label: "Media Blueprint",
+    description: "Prompt blueprint tailored for media generation (video, image, audio, etc.).",
+    category: "Media",
+  },
+};
+REPLACE server/routes.ts ENTIRELY with:
+
+ts
+Copy code
 import { type Express } from "express";
 import { createServer, type Server } from "http";
 import { generatePrompt } from "./services/promptGenerator";
@@ -489,3 +596,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+AFTER YOU FINISH ALL FILE EDITS:
+
+Run: cd client && npm run build
+
+Report whether it passes or fails and include any errors if it fails.
+
+Do NOT run any git commands.
