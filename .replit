@@ -1,0 +1,15 @@
+modules = ["nodejs-20"]
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[workflows]
+
+[[workflows.workflow]]
+name = "Start PromptMakerPro"
+mode = "sequential"
+author = 45958929
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
